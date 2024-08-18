@@ -67,14 +67,16 @@ mod cpu {
             self.mem_write(addr + 1, hi);
         }
 
-        pub fn load_and_run(&mut self, program: Vec<u8>) {
+        pub fn load_and_run(&mut self, program: Vec<u8>, reset: bool) {
             self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
             self.program_counter = self.mem_read_u16(0xfffc);
 
-            self.register_a = 0;
-            self.register_x = 0;
-            self.register_y = 0;
-            self.status = 0x00 as u8;
+            if (reset) {
+                self.register_a = 0;
+                self.register_x = 0;
+                self.register_y = 0;
+                self.status = 0x00 as u8;
+            }
 
             self.run();
         }
@@ -94,11 +96,8 @@ mod cpu {
             };
         }
 
-        fn get_flag(&mut self, flag: Flag) -> u8 {
-            if self.status & flag as u8 == 0 {
-                return 0;
-            };
-            1
+        fn get_flag(&mut self, flag: Flag) -> bool {
+            (self.status & flag as u8) != 0 
         }
 
         fn get_target_address(&mut self, mode: AddressingMode) -> u16 {
@@ -174,7 +173,7 @@ mod cpu {
             let addr: u16 = self.get_target_address(mode);
             let other: u8 = self.mem_read(addr);
             self.register_a += other;
-            self.register_a += self.get_flag(Flag::C);
+            self.register_a += self.get_flag(Flag::C) as u8;
             self.set_zero(self.register_a);
             self.set_negative(self.register_a);
             self.set_carry(old, other, self.register_a);
@@ -197,7 +196,7 @@ mod cpu {
             let old: u8 = self.mem_read(addr);
             let new: u8 = old << 1;
             self.mem_write(addr, new);
-            //self.set_carry();
+            self.set_flag(Flag::C, old & 0b1000_0000 == 1);
             self.set_zero(new);
             self.set_negative(new);
         }
@@ -209,6 +208,28 @@ mod cpu {
             self.register_a = self.mem_read(addr);
             self.set_zero(self.register_a);
             self.set_negative(self.register_a)
+        }
+
+        // This instructions is used to test if one or more bits are set in a target memory location. The mask pattern in A is ANDed with the value in memory to set or clear the zero flag, but the result is not kept. Bits 7 and 6 of the value from memory are copied into the N and V flags.
+        // Sets: Zero, Overflow, Carry
+
+        fn bit(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr);
+            self.set_flag(Flag::Z, self.register_a & val == 0);
+            self.set_flag(Flag::N, val & 0b1000_0000 != 0);
+            self.set_flag(Flag::V, val & 0b0100_0000 != 0);
+        }
+
+        fn jump_rel(&mut self, condition: bool) {
+            let rel: u8 = self.fetch();
+            if (!condition) { return; }
+            self.program_counter -= 2;
+            if rel & 0b1000_0000 == 0 {
+                self.program_counter += (rel & 0b0111_1111) as u16;
+            } else {
+                self.program_counter += (rel as u16 | 0b1111_1111_0000_0000);
+            }
         }
 
         pub fn run(&mut self) {
@@ -251,18 +272,56 @@ mod cpu {
                     0xb9 => self.lda(AddressingMode::AbsoluteY),
                     0xa1 => self.lda(AddressingMode::IndexedIndirectY),
                     0xb1 => self.lda(AddressingMode::IndirectIndexedY),
+
+                    // bcc - Branch if carry clear
+                    0x90 => { let carry = self.get_flag(Flag::C); self.jump_rel(!carry); },
+                    // bcs - Branch if carry set
+                    0xb0 => { let carry = self.get_flag(Flag::C); self.jump_rel(carry); },
+                    // beq - Branch if equal
+                    0xf0 => { let zero = self.get_flag(Flag::Z); self.jump_rel(zero); },
+                    // bit
+                    0x24 => self.bit(AddressingMode::ZeroPage),  
+                    0x2c => self.bit(AddressingMode::Absolute),
+                    // bmi - Branch if minus
+                    0x30 => { let neg = self.get_flag(Flag::N); self.jump_rel(neg); },
+                    // bne
+                    0xd0 => { let zero = self.get_flag(Flag::Z); self.jump_rel(!zero); },
+                    // bpl - Branch if positive
+                    0x10 => { let neg = self.get_flag(Flag::N); self.jump_rel(!neg); },
+                    // bvc - Branch if overflow clear
+                    0x50 => { let overflow = self.get_flag(Flag::V); self.jump_rel(!overflow); },
+                    // bvs - Branch if overflow set
+                    0x70 => { let overflow = self.get_flag(Flag::V); self.jump_rel(overflow); },
+                    // clc - Clear carry flag
+                    0x18 => self.set_flag(Flag::C, false),
+                    // cld - Clear decimal mode
+                    0xd8 => self.set_flag(Flag::D, false),
+                    // cli - Clear interrupt disable
+                    0x58 => self.set_flag(Flag::I, false),
+                    // clv - Clear overflow
+                    0xb8 => self.set_flag(Flag::V, false),
+                    // cmp
+                    0xc9 => todo!(), // Immediate
+                    0xc5 => todo!(), // Zeropage
+                    0xd5 => todo!(), // Zeropage,X
+                    0xcd => todo!(), // Absolute
+
+                    // cpx
+                    // cpy
+
+
                     // TAX
                     0xaa => {
                         self.register_x = self.register_a;
                         self.set_flag(Flag::Z, self.register_x == 0);
                         self.set_flag(Flag::N, self.register_x & 0b1000_0000 != 0);
-                    }
+                    },
                     // INX
                     0xe8 => {
                         self.register_x += 1;
                         self.set_flag(Flag::Z, self.register_x == 0);
                         self.set_flag(Flag::N, self.register_x & 0b1000_0000 != 0);
-                    }
+                    },
                     0x00 => return,
                     _ => todo!(""),
                 }
@@ -282,7 +341,7 @@ mod cpu {
         fn test_0xa9_lda_immediate_load_data() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0x05, 0x00], true);
             assert_eq!(cpu.register_a, 0x05);
             assert_eq!(cpu.status & Flag::Z as u8, 0);
             assert_eq!(cpu.status & Flag::N as u8, 0);
@@ -293,7 +352,7 @@ mod cpu {
         fn test_0xa9_lda_zero_flag() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0x00, 0x00], true);
             assert_eq!(cpu.status & Flag::Z as u8, Flag::Z as u8);
             assert_eq!(cpu.status & Flag::N as u8, 0);
         }
@@ -303,7 +362,7 @@ mod cpu {
         fn test_0xa9_lda_negative_flag() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0b1000_0000, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0b1000_0000, 0x00], true);
             assert_eq!(cpu.status & Flag::Z as u8, 0);
             assert_eq!(cpu.status & Flag::N as u8, Flag::N as u8);
         }
@@ -313,7 +372,7 @@ mod cpu {
         fn test_0xaa_tax_load_data() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0x05, 0xaa, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0x05, 0xaa, 0x00], true);
             assert_eq!(cpu.register_x, 0x05);
             assert_eq!(cpu.status & Flag::Z as u8, 0);
             assert_eq!(cpu.status & Flag::N as u8, 0);
@@ -324,7 +383,7 @@ mod cpu {
         fn test_0xaa_tax_zero_flag() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0x00, 0xaa, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0x00, 0xaa, 0x00], true);
             assert_eq!(cpu.status & Flag::Z as u8, Flag::Z as u8);
             assert_eq!(cpu.status & Flag::N as u8, 0);
         }
@@ -334,7 +393,7 @@ mod cpu {
         fn test_0xaa_tax_negative_flag() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0b1000_0000, 0xaa, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0b1000_0000, 0xaa, 0x00], true);
             assert_eq!(cpu.status & Flag::Z as u8, 0);
             assert_eq!(cpu.status & Flag::N as u8, Flag::N as u8);
         }
@@ -344,7 +403,7 @@ mod cpu {
         fn test_0xe8_inx_increment() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0x05, 0xaa, 0xe8, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0x05, 0xaa, 0xe8, 0x00], true);
             assert_eq!(cpu.status & Flag::Z as u8, 0);
             assert_eq!(cpu.status & Flag::N as u8, 0);
         }
@@ -354,42 +413,41 @@ mod cpu {
         fn test_5_ops_working_together() {
             let mut cpu = CPU::new();
             cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
+            cpu.load_and_run(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00], true);
             assert_eq!(cpu.register_x, 0xc1)
         }
 
         macro_rules! test_adc {
-        ($( $x:ident ),*) => {
-            mod adc {
-                use super::*;
-                use rand::prelude::*;
-                $(
-                    #[test]
-                    fn $x() {
-                        let mut cpu = CPU::new();
-                        let mut rng = rand::thread_rng();
-                        let mode = AddressingMode::$x;
+            ($( $x:ident ),*) => {
+                mod adc {
+                    use super::*;
+                    use rand::prelude::*;
+                    $(
+                        #[test]
+                        fn $x() {
+                            let mut cpu = CPU::new();
+                            let mut rng = rand::thread_rng();
+                            let mode = AddressingMode::$x;
 
-                        let rand: u32 = rng.next_u32();
+                            let rand: u32 = rng.next_u32();
 
-                        let a: u8 = (rand & 0xff) as u8;
-                        let c: u8 = ((rand >> 8) & 0xff) as u8 % 2;
-                        let secret_value: u8 = ((rand >> 16) & 0xff) as u8;
+                            let a: u8 = (rand & 0xff) as u8;
+                            let c: u8 = ((rand >> 8) & 0xff) as u8 % 2;
+                            let secret_value: u8 = ((rand >> 16) & 0xff) as u8;
 
-                        cpu.register_a = a;
-                        cpu.set_flag(Flag::C, c != 0);
-                        addressing_mode_tester(&mut cpu, secret_value, &mode);
+                            cpu.register_a = a;
+                            cpu.set_flag(Flag::C, c != 0);
+                            addressing_mode_tester(&mut cpu, secret_value, &mode);
 
-                        cpu.adc(mode);
-                        println!("{:b}, {}", cpu.status, cpu.register_a);
-                        assert_eq!(cpu.register_a, a + c + secret_value);
-                        assert_eq!(cpu.get_flag(Flag::Z) == 1, cpu.register_a == 0);
-                        assert_eq!(cpu.get_flag(Flag::N) == 1, cpu.register_a  & 0b1000_0000 != 0);
-                    }
-                )*
+                            cpu.adc(mode);
+                            assert_eq!(cpu.register_a, a + c + secret_value);
+                            assert_eq!(cpu.get_flag(Flag::Z), cpu.register_a == 0);
+                            assert_eq!(cpu.get_flag(Flag::N), cpu.register_a  & 0b1000_0000 != 0);
+                        }
+                    )*
+                }
             }
         }
-    }
 
         test_adc![
             Immediate,
@@ -406,7 +464,251 @@ mod cpu {
             IndirectIndexedY
         ];
 
-        // set the value of A, the carry, and a hidden address, based on what is supported..
+        macro_rules! test_and {
+            ($( $x:ident ),*) => {
+                mod and {
+                    use super::*;
+                    use rand::prelude::*;
+                    $(
+                        #[test]
+                        fn $x() {
+                            let mut cpu = CPU::new();
+                            let mut rng = rand::thread_rng();
+                            let mode = AddressingMode::$x;
+
+                            let rand: u32 = rng.next_u32();
+
+                            let a: u8 = (rand & 0xff) as u8;
+                            let secret_value: u8 = ((rand >> 16) & 0xff) as u8;
+
+                            cpu.register_a = a;
+                            addressing_mode_tester(&mut cpu, secret_value, &mode);
+
+                            cpu.and(mode);
+                            assert_eq!(cpu.register_a, a & secret_value);
+                            assert_eq!(cpu.get_flag(Flag::Z), cpu.register_a == 0);
+                            assert_eq!(cpu.get_flag(Flag::N), cpu.register_a  & 0b1000_0000 != 0);
+                        }
+                    )*
+                }
+            }
+        }
+
+        test_and![
+            Immediate,
+            ZeroPage,
+            ZeroPageX,
+            ZeroPageY,
+            Absolute,
+            AbsoluteX,
+            AbsoluteY,
+            Indirect,
+            IndexedIndirectX,
+            IndexedIndirectY,
+            IndirectIndexedX,
+            IndirectIndexedY
+        ];
+
+        macro_rules! test_asl {
+            ($( $x:ident ),*) => {
+                mod asl {
+                    use super::*;
+                    use rand::prelude::*;
+                    $(
+                        #[test]
+                        fn $x() {
+                            let mut cpu = CPU::new();
+                            let mut rng = rand::thread_rng();
+                            let mode = AddressingMode::$x;
+
+                            let rand: u32 = rng.next_u32();
+
+                            let secret_value: u8 = ((rand >> 16) & 0xff) as u8;
+                            addressing_mode_tester(&mut cpu, secret_value, &mode);
+
+                            cpu.asl(mode);
+                            //assert_eq!(cpu.register_a, );
+                            assert_eq!(cpu.get_flag(Flag::Z), secret_value << 1 == 0);
+                            assert_eq!(cpu.get_flag(Flag::N), (secret_value << 1)  & 0b1000_0000 != 0);
+                        }
+                    )*
+                }
+            }
+        }
+
+        test_asl![
+            ZeroPage,
+            ZeroPageX,
+            Absolute,
+            AbsoluteX
+        ];
+
+        macro_rules! test_bit {
+            ($($x: ident), * ) => {
+                mod bit {
+                    use super::*;
+                    use rand::prelude::*;
+                    $(
+                        #[test]
+                        fn $x() {
+                            let mut cpu = CPU::new();
+                            let mut rng = rand::thread_rng();
+                            let mode = AddressingMode::$x;
+
+                            let rand: u32 = rng.next_u32();
+
+                            let reg: u8 = (rand & 0xff) as u8;
+                            let secret_value: u8 = ((rand >> 16) & 0xff) as u8;
+
+                            cpu.register_a = reg;
+                            addressing_mode_tester(&mut cpu, secret_value, &mode);
+
+                            cpu.bit(mode);
+
+                            // check that the Zero flag contains the result.
+                            
+                            assert_eq!(cpu.get_flag(Flag::Z), reg & secret_value == 0);
+                            // Check that the N and V flags are correctly set.
+                            assert_eq!(cpu.get_flag(Flag::N), secret_value & 0b1000_0000 != 0);
+                            assert_eq!(cpu.get_flag(Flag::V), secret_value & 0b0100_0000 != 0);
+                        } 
+                    )*
+                }
+            }
+        }
+
+        test_bit![ZeroPage, Absolute];
+
+
+        /*macro_rules! test_rel_jumps {
+            ($($x: ident), * ) => {
+
+            }
+        }*/
+
+        /*  ** Logic check for rel_jump. **
+            We simulate that a jump instruction was read at the address 0x8000, and the program counter moved to
+            0x8001, where we load the relative jump address. Afterwards, we call the jump_rel instruction logic 
+            directly, and check if it set the program counter as expected.
+            Note that since the computer is not directly run, we do not need to increase the target program counter
+            to deal with the extra 0x00 that is read to halt the execution.
+        */
+        #[test]
+        fn test_rel_jump() {
+            let mut cpu = CPU::new();
+            
+            cpu.program_counter = 0x8001;
+            cpu.mem_write(0x8001, 0b1001_0101);
+            cpu.jump_rel(true);
+            assert_eq!(cpu.program_counter, 0x7f95);
+
+            cpu.program_counter = 0x8001;
+            cpu.mem_write(0x8001, 0b0110_0101);
+            cpu.jump_rel(true);
+            assert_eq!(cpu.program_counter, 0x8065); 
+        }
+
+        /*  ** Checking jump instructions **
+            In the different test methods we set up the cpu flags according to the instruction tested, and call the jump_check 
+            method. This method loads the cpu memory with the instruction tested, and a jump pattern, which allows to test
+            if the cpu branched or not. We compare this with the expected behavior.
+        */
+
+        fn jump_check(instruction: u8, cpu: &mut CPU) -> bool {
+            cpu.mem_write_u16(0xfffc, 0x8000);
+            cpu.load_and_run(vec![instruction, 0x03, 0x00], false);
+            if (cpu.program_counter == 0x8003) { false }
+            else { true }
+        }
+
+        #[test]
+        fn test_bcc_0x90() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::C, false);
+            assert_eq!(jump_check(0x90, &mut cpu), true);
+
+            cpu.set_flag(Flag::C, true);
+            assert_eq!(jump_check(0x90, &mut cpu), false);
+        }
+
+        #[test]
+        fn test_bcs_0xb0() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::C, false);
+            assert_eq!(jump_check(0xb0, &mut cpu), false);
+
+            cpu.set_flag(Flag::C, true);
+            assert_eq!(jump_check(0xb0, &mut cpu), true);
+        }
+
+        #[test]
+        fn test_beq_0xf0() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::Z, false);
+            assert_eq!(jump_check(0xf0, &mut cpu), false);
+
+            cpu.set_flag(Flag::Z, true);
+            assert_eq!(jump_check(0xf0, &mut cpu), true);
+        }
+        
+        #[test]
+        fn test_bne_0xd0() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::Z, false);
+            assert_eq!(jump_check(0xd0, &mut cpu), true);
+
+            cpu.set_flag(Flag::Z, true);
+            assert_eq!(jump_check(0xd0, &mut cpu), false);
+        }
+
+        #[test]
+        fn test_bmi_0x30() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::N, false);
+            assert_eq!(jump_check(0x30, &mut cpu), false);
+
+            cpu.set_flag(Flag::N, true);
+            assert_eq!(jump_check(0x30, &mut cpu), true);
+        }
+
+        #[test]
+        fn test_bpl_0x10() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::N, false);
+            assert_eq!(jump_check(0x10, &mut cpu), true);
+
+            cpu.set_flag(Flag::N, true);
+            assert_eq!(jump_check(0x10, &mut cpu), false);
+        }
+
+        #[test]
+        fn test_bvc_0x50() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::V, false);
+            assert_eq!(jump_check(0x50, &mut cpu), true);
+
+            cpu.set_flag(Flag::V, true);
+            assert_eq!(jump_check(0x50, &mut cpu), false);
+        }
+
+        #[test]
+        fn test_bvc_0x70() {
+            let mut cpu = CPU::new();
+
+            cpu.set_flag(Flag::V, false);
+            assert_eq!(jump_check(0x70, &mut cpu), false);
+
+            cpu.set_flag(Flag::V, true);
+            assert_eq!(jump_check(0x70, &mut cpu), true);
+        }
+        
 
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
         fn addressing_mode_tester(cpu: &mut CPU, secret_value: u8, mode: &AddressingMode) {
