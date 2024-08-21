@@ -1,0 +1,5 @@
+- come up with a way to unify instructions like 'inc', 'inx', 'iny'.
+    - implement this in their tests too.
+- introduce new memory, and related tests.
+    - rewrite all memory related methods (mem_read, mem_write, etc) so that they interface with the bus.
+- correct returned address in test addressing helper method.
