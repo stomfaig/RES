@@ -34,6 +34,18 @@ mod cpu {
         pub program_counter: u16,
         memory: [u8; 0xffff],
     }
+    macro_rules! ld {
+        ($($name: ident, $register: ident),+) => {
+            $(
+                fn $name(&mut self, mode: AddressingMode) {
+                    let addr: u16 = self.get_target_address(mode);
+                    self.$register = self.mem_read(addr);
+                    self.set_zero(self.$register);
+                    self.set_negative(self.$register);
+                }
+            )+
+        }
+    }
 
     impl CPU {
         pub fn new() -> Self {
@@ -201,15 +213,6 @@ mod cpu {
             self.set_negative(new);
         }
 
-        // Loads a byte of memory into the accumulator setting the zero and negative flags as appropriate.
-        // sets: Zero, Negative
-        fn lda(&mut self, mode: AddressingMode) {
-            let addr: u16 = self.get_target_address(mode);
-            self.register_a = self.mem_read(addr);
-            self.set_zero(self.register_a);
-            self.set_negative(self.register_a)
-        }
-
         // This instructions is used to test if one or more bits are set in a target memory location. The mask pattern in A is ANDed with the value in memory to set or clear the zero flag, but the result is not kept. Bits 7 and 6 of the value from memory are copied into the N and V flags.
         // Sets: Zero, Overflow, Carry
 
@@ -231,6 +234,7 @@ mod cpu {
                 self.program_counter += (rel as u16 | 0b1111_1111_0000_0000);
             }
         }
+        ld![lda, register_a, ldx, register_x, ldy, register_y];
 
         pub fn run(&mut self) {
             // Upon receiving a code, we want to find out the operation and the addressing mode.
@@ -263,16 +267,6 @@ mod cpu {
                     0x0e => self.asl(AddressingMode::Absolute),
                     0x1e => self.asl(AddressingMode::AbsoluteX),
 
-                    // lda
-                    0xa9 => self.lda(AddressingMode::Immediate),
-                    0xa5 => self.lda(AddressingMode::ZeroPage),
-                    0xb5 => self.lda(AddressingMode::ZeroPageX),
-                    0xad => self.lda(AddressingMode::Absolute),
-                    0xbd => self.lda(AddressingMode::AbsoluteX),
-                    0xb9 => self.lda(AddressingMode::AbsoluteY),
-                    0xa1 => self.lda(AddressingMode::IndexedIndirectY),
-                    0xb1 => self.lda(AddressingMode::IndirectIndexedY),
-
                     // bcc - Branch if carry clear
                     0x90 => { let carry = self.get_flag(Flag::C); self.jump_rel(!carry); },
                     // bcs - Branch if carry set
@@ -300,15 +294,27 @@ mod cpu {
                     0x58 => self.set_flag(Flag::I, false),
                     // clv - Clear overflow
                     0xb8 => self.set_flag(Flag::V, false),
-                    // cmp
-                    0xc9 => todo!(), // Immediate
-                    0xc5 => todo!(), // Zeropage
-                    0xd5 => todo!(), // Zeropage,X
-                    0xcd => todo!(), // Absolute
-
-                    // cpx
-                    // cpy
-
+                    // lda - load accumulator
+                    0xa9 => self.lda(AddressingMode::Immediate),
+                    0xa5 => self.lda(AddressingMode::ZeroPage),
+                    0xb5 => self.lda(AddressingMode::ZeroPageX),
+                    0xad => self.lda(AddressingMode::Absolute),
+                    0xbd => self.lda(AddressingMode::AbsoluteX),
+                    0xb9 => self.lda(AddressingMode::AbsoluteY),
+                    0xa1 => self.lda(AddressingMode::IndexedIndirectY),
+                    0xb1 => self.lda(AddressingMode::IndirectIndexedY),
+                    // ldx - load register x
+                    0xa2 => self.ldx(AddressingMode::Immediate),
+                    0xa6 => self.ldx(AddressingMode::ZeroPage),
+                    0xb6 => self.ldx(AddressingMode::ZeroPageY),
+                    0xae => self.ldx(AddressingMode::Absolute),
+                    0xbe => self.ldx(AddressingMode::AbsoluteY),
+                    // ldy - load register y
+                    0xa0 => self.ldy(AddressingMode::Immediate),
+                    0xa4 => self.ldy(AddressingMode::ZeroPage),
+                    0xb4 => self.ldy(AddressingMode::ZeroPageX),
+                    0xac => self.ldy(AddressingMode::Absolute),
+                    0xbc => self.ldy(AddressingMode::AbsoluteX),
 
                     // TAX
                     0xaa => {
