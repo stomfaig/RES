@@ -451,11 +451,14 @@ mod cpu {
 
     #[cfg(test)]
     mod test {
+        use super::*;
+        use rand::prelude::*;
+
         macro_rules! run_test {
             ($instr: ident, $($mode: ident),+) => {
                 mod $instr {
                     use super::*;
-                    use rand::prelude;
+                    use rand::prelude::*;
 
                     $(#[test]
                     fn $mode() {
@@ -703,10 +706,48 @@ mod cpu {
             cpu.set_flag(Flag::V, true);
             assert_eq!(jump_check(0x70, &mut cpu), true);
         }
+
+        fn dec(cpu: &mut CPU, mode: AddressingMode, rng: &mut ThreadRng) {
+            let mem_value: u8 = next_u8(rng);
+
+            let addr = addressing_mode_tester(cpu, mem_value, &mode);
+            cpu.dec(mode);
+
+            let new_value = mem_value - 1;
+
+            assert_eq!(cpu.mem_read(addr), new_value);
+            assert_eq!(cpu.get_flag(Flag::Z), new_value == 0);
+            assert_eq!(cpu.get_flag(Flag::N), (mem_value) & 0b1000_0000 != 0);
+        }
+
+        run_test![
+            dec,
+            ZeroPage,
+            ZeroPageX,
+            Absolute,
+            AbsoluteX
+        ];
+
+        // what does inc do? well, it increments a memory address...
+        fn inc(cpu: &mut CPU, mode: AddressingMode, rng: &mut ThreadRng) {
+            let val = next_u8(rng);
+            let addr = addressing_mode_tester(cpu, val, &mode);
+
+            cpu.inc(mode);
+
+            let new_val = cpu.mem_read(addr);
+            assert_eq!(new_val, val+1);
+            assert_eq!(cpu.get_flag(Flag::Z), new_val == 0);
+            // check flags
+        }
+
+        run_test![inc, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
+
+        //test_inc![ZeroPage, ZeroPageX, Absolute, AbsoluteX];
         
 
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
-        fn addressing_mode_tester(cpu: &mut CPU, secret_value: u8, mode: &AddressingMode) {
+        fn addressing_mode_tester(cpu: &mut CPU, secret_value: u8, mode: &AddressingMode) -> u16 {
             let lsb: u8 = 10;
             let msb: u8 = 13;
             let addr: u16 = (msb as u16) << 8 + (lsb as u16);
@@ -716,67 +757,79 @@ mod cpu {
             cpu.program_counter = 0;
 
             match mode {
-                AddressingMode::Immediate => {
+                AddressingMode::Immediate => { // this needs to be corrected...
                     cpu.mem_write(cpu.program_counter, secret_value);
+                    0 as u16 
                 }
                 AddressingMode::ZeroPage => {
                     cpu.mem_write(lsb as u16, secret_value);
                     cpu.mem_write(cpu.program_counter, lsb);
+                    lsb as u16
                 }
                 AddressingMode::ZeroPageX => {
                     cpu.register_x = reg;
                     cpu.mem_write(lsb as u16 + reg as u16, secret_value);
                     cpu.mem_write(cpu.program_counter, lsb);
+                    lsb as u16 + reg as u16
                 }
                 AddressingMode::ZeroPageY => {
                     cpu.register_y = reg;
                     cpu.mem_write(lsb as u16 + reg as u16, secret_value);
                     cpu.mem_write(cpu.program_counter, lsb);
+                    lsb as u16
                 }
                 AddressingMode::Absolute => {
                     cpu.mem_write(addr, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    addr
                 }
                 AddressingMode::AbsoluteX => {
                     cpu.register_x = reg;
                     cpu.mem_write(addr + reg as u16, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    addr + (reg as u16)
                 }
                 AddressingMode::AbsoluteY => {
                     cpu.register_y = reg;
                     cpu.mem_write(addr + reg as u16, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    addr + (reg as u16)
                 }
                 AddressingMode::Indirect => {
                     cpu.mem_write_u16(addr, indirect);
                     cpu.mem_write(indirect, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    indirect
                 }
                 AddressingMode::IndexedIndirectX => {
                     cpu.register_x = reg;
                     cpu.mem_write_u16(addr + reg as u16, indirect);
                     cpu.mem_write(indirect, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    addr + (reg as u16)
                 }
                 AddressingMode::IndexedIndirectY => {
                     cpu.register_y = reg;
                     cpu.mem_write_u16(addr + reg as u16, indirect);
                     cpu.mem_write(indirect, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    addr + (reg as u16)
                 }
                 AddressingMode::IndirectIndexedX => {
                     cpu.register_x = reg;
                     cpu.mem_write_u16(addr, indirect);
                     cpu.mem_write(indirect + reg as u16, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    indirect + (reg as u16)
                 }
                 AddressingMode::IndirectIndexedY => {
                     cpu.register_y = reg;
                     cpu.mem_write_u16(addr, indirect);
                     cpu.mem_write(indirect + reg as u16, secret_value);
                     cpu.mem_write_u16(cpu.program_counter, addr);
+                    indirect + (reg as u16)
                 }
-            };
+            }
         }
     }
 }
