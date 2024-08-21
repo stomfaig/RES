@@ -34,6 +34,25 @@ mod cpu {
         pub program_counter: u16,
         memory: [u8; 0xffff],
     }
+
+    // Macro for generating instructions cmp, cpx, cpy
+    //
+    macro_rules! cp {
+        ($($name: ident, $register: ident), +) => {
+            $(
+                fn $name(&mut self, mode: AddressingMode) {
+                    let addr = self.get_target_address(mode);
+                    let val = self.mem_read(addr);
+                    self.set_flag(Flag::C, self.$register >= val);
+                    self.set_flag(Flag::Z, self.$register == val);
+                    // need a subtract here...
+                }
+            )+
+        }
+    }
+
+    // Macro for generating instructions lda, ldx and ldy.
+    // Loads the content of a specified memory address into a specified register.
     macro_rules! ld {
         ($($name: ident, $register: ident),+) => {
             $(
@@ -224,6 +243,8 @@ mod cpu {
             self.set_flag(Flag::V, val & 0b0100_0000 != 0);
         }
 
+        cp![cmp, register_a, cpx, register_x, cpy, register_y];
+
         fn jump_rel(&mut self, condition: bool) {
             let rel: u8 = self.fetch();
             if (!condition) { return; }
@@ -234,6 +255,29 @@ mod cpu {
                 self.program_counter += (rel as u16 | 0b1111_1111_0000_0000);
             }
         }
+
+        fn dec(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr) + 0b1111_1111;
+            self.mem_write(addr, val);
+
+            self.set_zero(val);
+            self.set_negative(val);
+        }
+
+        fn eor(&mut self, mode: AddressingMode) {
+            todo!();
+        }
+
+        fn inc(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr) + 0b0000_0001;
+            self.mem_write(addr, val);
+
+            self.set_zero(val);
+            self.set_negative(val);
+        }
+
         ld![lda, register_a, ldx, register_x, ldy, register_y];
 
         pub fn run(&mut self) {
@@ -294,6 +338,71 @@ mod cpu {
                     0x58 => self.set_flag(Flag::I, false),
                     // clv - Clear overflow
                     0xb8 => self.set_flag(Flag::V, false),
+                    // cmp - compare accumulator with value in memory
+                    0xc9 => self.cmp(AddressingMode::Immediate), 
+                    0xc5 => self.cmp(AddressingMode::ZeroPage),
+                    0xd5 => self.cmp(AddressingMode::ZeroPageX),
+                    0xcd => self.cmp(AddressingMode::Absolute),
+                    0xdd => self.cmp(AddressingMode::AbsoluteX),
+                    0xd9 => self.cmp(AddressingMode::AbsoluteY),
+                    0xc1 => self.cmp(AddressingMode::IndexedIndirectX),
+                    0xd1 => self.cmp(AddressingMode::IndirectIndexedY),
+                    // cpx - compare register x with value in memory
+                    0xe0 => self.cpx(AddressingMode::Immediate),
+                    0xe4 => self.cpx(AddressingMode::ZeroPage),
+                    0xec => self.cpx(AddressingMode::Absolute),
+                    // cpy - compare register y with value in memory
+                    0xc0 => self.cpy(AddressingMode::Immediate),
+                    0xc4 => self.cpy(AddressingMode::ZeroPage),
+                    0xcc => self.cpy(AddressingMode::Absolute),
+                    // dec - decrement memory
+                    0xc6 => self.dec(AddressingMode::ZeroPage),
+                    0xd6 => self.dec(AddressingMode::ZeroPageX),
+                    0xce => self.dec(AddressingMode::Absolute),
+                    0xde => self.dec(AddressingMode::AbsoluteX),
+                    // dex - decrease register x
+                    0xca => {
+                        self.register_x += 0b1111_1111;
+                        self.set_zero(self.register_x);
+                        self.set_negative(self.register_x);
+                    },
+                    // dey - decrement register y
+                    0x88 => {
+                        self.register_y += 0b1111_1111;
+                        self.set_zero(self.register_y);
+                        self.set_negative(self.register_y);
+                    },
+                    // eor - exclusive or
+                    0x49 => self.eor(AddressingMode::Immediate),
+                    0x45 => self.eor(AddressingMode::ZeroPage),
+                    0x55 => self.eor(AddressingMode::ZeroPageX),
+                    0x4d => self.eor(AddressingMode::Absolute),
+                    0x5d => self.eor(AddressingMode::AbsoluteX),
+                    0x59 => self.eor(AddressingMode::AbsoluteY),
+                    0x41 => self.eor(AddressingMode::IndexedIndirectX),
+                    0x51 => self.eor(AddressingMode::IndirectIndexedY),
+                    // inc - increment memory
+                    0xe6 => self.inc(AddressingMode::ZeroPage),
+                    0xf6 => self.inc(AddressingMode::ZeroPageX),
+                    0xee => self.inc(AddressingMode::Absolute),
+                    0xfe => self.inc(AddressingMode::AbsoluteX),
+                    // inx - increment register x
+                    0xe8 => {
+                        self.register_x += 0b0000_0001;
+                        self.set_zero(self.register_x);
+                        self.set_negative(self.register_x);
+                    },
+                    // dey - decrement register y
+                    0xc8 => {
+                        self.register_y += 0b0000_0001;
+                        self.set_zero(self.register_y);
+                        self.set_negative(self.register_y);
+                    },
+                    // jmp - jump
+                    // 4c Absolute
+                    // 6c indirect
+                    // jsr - jump to subroutine
+
                     // lda - load accumulator
                     0xa9 => self.lda(AddressingMode::Immediate),
                     0xa5 => self.lda(AddressingMode::ZeroPage),
@@ -315,6 +424,11 @@ mod cpu {
                     0xb4 => self.ldy(AddressingMode::ZeroPageX),
                     0xac => self.ldy(AddressingMode::Absolute),
                     0xbc => self.ldy(AddressingMode::AbsoluteX),
+                    // lsr - logical shift right
+
+                    // nop - no operation
+                    0xea => todo!(),
+                    
 
                     // TAX
                     0xaa => {
