@@ -1,5 +1,8 @@
 #![allow(arithmetic_overflow)]
 mod cpu {
+
+    use crate::bus::{ControlSignal, Mem, ArrayBus};
+
     enum AddressingMode {
         Immediate,
         ZeroPage,
@@ -32,7 +35,7 @@ mod cpu {
         pub register_y: u8,
         pub status: u8,
         pub program_counter: u16,
-        memory: [u8; 0xffff],
+        memory: ArrayBus,
     }
 
     // Macro for generating instructions cmp, cpx, cpy
@@ -74,19 +77,30 @@ mod cpu {
                 register_y: 0,
                 status: 0,
                 program_counter: 0,
-                memory: [0; 0xffff],
+                memory: ArrayBus::new(),
             }
         }
 
-        fn mem_read(&self, addr: u16) -> u8 {
-            self.memory[addr as usize]
+        fn mem_read(&mut self, addr: u16) -> u8 {
+            self.memory.set_control_signal(ControlSignal::MemEnable, false);
+            self.memory.set_address_bus(addr);
+            self.memory.set_control_signal(ControlSignal::AccessMode, true);
+            self.memory.set_control_signal(ControlSignal::MemEnable, true);
+            let val: u8 = self.memory.data_bus;
+            self.memory.set_control_signal(ControlSignal::MemEnable, false);
+            val
         }
 
         fn mem_write(&mut self, addr: u16, value: u8) {
-            self.memory[addr as usize] = value;
+            self.memory.set_control_signal(ControlSignal::MemEnable, false);
+            self.memory.set_address_bus(addr);
+            self.memory.set_control_signal(ControlSignal::AccessMode, false);
+            self.memory.set_data_bus(value);
+            self.memory.set_control_signal(ControlSignal::MemEnable, true);
+            self.memory.set_control_signal(ControlSignal::MemEnable, false);
         }
 
-        fn mem_read_u16(&self, addr: u16) -> u16 {
+        fn mem_read_u16(&mut self, addr: u16) -> u16 {
             let lo = self.mem_read(addr) as u16;
             let hi = self.mem_read(addr + 1) as u16;
             (hi << 8) | lo
@@ -99,7 +113,7 @@ mod cpu {
         }
 
         pub fn load_and_run(&mut self, program: Vec<u8>, reset: bool) {
-            self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
+            //self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
             self.program_counter = self.mem_read_u16(0xfffc);
 
             if (reset) {
@@ -113,7 +127,7 @@ mod cpu {
         }
 
         fn fetch(&mut self) -> u8 {
-            let data = self.memory[self.program_counter as usize];
+            let data = self.mem_read(self.program_counter);
             self.program_counter += 1;
             data
         }
