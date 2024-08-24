@@ -241,7 +241,7 @@ mod cpu {
             let old: u8 = self.mem_read(addr);
             let new: u8 = old << 1;
             self.mem_write(addr, new);
-            self.set_flag(Flag::C, old & 0b1000_0000 == 1);
+            self.set_flag(Flag::C, old & 0b1000_0000 != 0);
             self.set_zero(new);
             self.set_negative(new);
         }
@@ -568,6 +568,7 @@ mod cpu {
             //assert_eq!(cpu.register_a, );
             assert_eq!(cpu.get_flag(Flag::Z), mem_value << 1 == 0);
             assert_eq!(cpu.get_flag(Flag::N), (mem_value << 1)  & 0b1000_0000 != 0);
+            assert_eq!(cpu.get_flag(Flag::C), (mem_value) & 0b1000_0000 != 0);
         }
 
         run_test![
