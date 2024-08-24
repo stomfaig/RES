@@ -56,6 +56,7 @@ Completely memory backed memory unit for testing. The idea behind this module is
                                                     and upon the cpu reading from this address,
                                                     return 'val'.
     set_read_u16_address(addr:u 16, val: u16)   : same as set_read_target, but with u16 values.
+    set_vector_read_target(addr: u16, vals: Vec<u8>) : same as above but with a vector of u8s.
     set_write_target(addr: u16, val: u8)        : allow the cpu to write to the address 'addr',
                                                     upon writing, panic if the written value is
                                                     not 'val'.

@@ -91,6 +91,14 @@ impl TestBus {
         self.read_targets.insert(addr + 1, high);
     }
 
+    pub fn set_vector_read_target(&mut self, addr: u16, vals: Vec<u8>) {
+        let mut offset: u16 = 0;
+        for val in vals {
+            self.read_targets.insert(addr + offset, val);
+            offset += 1;
+        }
+    }
+
     pub fn set_write_target(&mut self, addr: u16, val: u8) {
         self.write_targets.insert(addr, val);
     }
@@ -127,7 +135,7 @@ impl Mem for TestBus {
             let result: Option<&u8> = self.read_targets.get(&self.address_bus);
             self.data_bus = match result {
                 Some(val) => *val,
-                None => panic!("Method trying to read from forbidden memory."),
+                None => panic!("Method trying to read from forbidden memory (addr: {:x})", self.address_bus),
             }
         } else {
             let result: Option<&u8> = self.write_targets.get(&self.address_bus);
@@ -135,7 +143,7 @@ impl Mem for TestBus {
                 Some(val) => {
                     if (*val != self.data_bus) { panic!("Method trying to write invalid data."); }
                 },
-                None => panic!("Method trying to write to forbidden memory(addr: {:b}, val: {:b})", self.address_bus, self.data_bus),
+                None => panic!("Method trying to write to forbidden memory(addr: {:x}, val: {:b})", self.address_bus, self.data_bus),
             }
         }
     }
