@@ -739,7 +739,7 @@ mod cpu {
             cpu.dec(mode);
 
             assert_eq!(cpu.get_flag(Flag::Z), new_value == 0);
-            assert_eq!(cpu.get_flag(Flag::N), (mem_value) & 0b1000_0000 != 0);
+            assert_eq!(cpu.get_flag(Flag::N), (new_value) & 0b1000_0000 != 0);
         }
 
         run_test![
