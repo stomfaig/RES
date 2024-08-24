@@ -30,12 +30,37 @@ Note, however, that checking all possible dependent input combinations might sti
 
 *Even though the CPU is not completely ready yet, I need a fairly simple external BUS and Memory implementation, that I can use in testing.*
 
-Mainly for convenience reasons I am going to treat the bus and the memory as a singular object. For now the memory is owned by the CPU, but thr final plan is to have a decentralised CPU, just as on the original NES. This will also allow to swap out the CPU for custom objects that implement the 'Mem' trait, but are mocking objects for formal verification. Communication with the memory happens through signals:
+Mainly for convenience reasons I am going to treat the bus and the memory as a singular object. For now the memory is owned by the CPU, but the final plan is to have a decentralised CPU, just as on the original NES, where different components will have to request access to memory before interacting with it. Communication with the memory happens through the following channels:
 
-    AccessMode  : 0/1: determines whether the memory unit is expected to store the value
+    address_bus : Address of the memory cell to read from, or written to
+    data_bus    : In the case of writing, the data to be written into the memory, int the
+                    case of reading, the memory puts the data read form the memory cell onto
+                    this bus
+    control_bus : Control signals, that configure the memory
+    AccessMode  (bit 0 of cb) first  0/1: determines whether the memory unit is expected to store the value
                     on the data bus, or load a value onto the data bus.
-    MemEnable   : If 0, the memory is not active. If 1, the memory reads the value in the
+    MemEnable   (bit 1 of cb) If 0, the memory is not active. If 1, the memory reads the value in the
                     AccessMode register, and performs the requested operation.
+
+A memory unit can be used with the CPU if it implements the 'Mem' train from the 'bus' module. This trait provides implementations for operations related to the above buses.
+
+#### ArrayBus
+
+Completely memory backed memory unit. Mostly used for running the CPU without assuming memory mapped objects. The complete memory range (0x0000-0xffff) corresponds to a u8 array.
+
+#### TestBus
+
+Completely memory backed memory unit for testing. The idea behind this module is that when running a method in testing on a certain input data, we can predict what parts of the memory *should* be accessed, and what values should be written to the memory. TestBus can be preloaded with these expectations, and upon the CPU running, the TestBus panics if these expectations are violated. The 'TestBus' struct has 3 extra methods on top of the methods required by 'Mem':
+
+    set_read_target(addr: u16, val: u8)         : allow the cpu to read from the address 'addr' 
+                                                    and upon the cpu reading from this address,
+                                                    return 'val'.
+    set_read_u16_address(addr:u 16, val: u16)   : same as set_read_target, but with u16 values.
+    set_write_target(addr: u16, val: u8)        : allow the cpu to write to the address 'addr',
+                                                    upon writing, panic if the written value is
+                                                    not 'val'.
+
+
 
 [1]:https://www.nesdev.org/obelisk-6502-guide/index.html
 
