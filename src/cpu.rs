@@ -607,18 +607,18 @@ mod cpu {
             directly, and check if it set the program counter as expected.
             Note that since the computer is not directly run, we do not need to increase the target program counter
             to deal with the extra 0x00 that is read to halt the execution.
-        
+        */
         #[test]
         fn test_rel_jump() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
             
             cpu.program_counter = 0x8001;
-            cpu.mem_write(0x8001, 0b1001_0101);
+            cpu.memory.set_read_target(0x8001, 0b1001_0101);
             cpu.jump_rel(true);
             assert_eq!(cpu.program_counter, 0x7f95);
 
             cpu.program_counter = 0x8001;
-            cpu.mem_write(0x8001, 0b0110_0101);
+            cpu.memory.set_read_target(0x8001, 0b0110_0101);
             cpu.jump_rel(true);
             assert_eq!(cpu.program_counter, 0x8065); 
         }
@@ -628,17 +628,22 @@ mod cpu {
             method. This method loads the cpu memory with the instruction tested, and a jump pattern, which allows to test
             if the cpu branched or not. We compare this with the expected behavior.
         */
+        fn jump_check(instruction: u8, cpu: &mut CPU<TestBus>) -> bool {
+            cpu.program_counter = 0x8000;
+            cpu.memory.set_vector_read_target(0x8000, vec![instruction, 0x05, 0x00]);
+            cpu.memory.set_read_target(0x8005, 0x00);
+            cpu.run();
 
-        fn jump_check(instruction: u8, cpu: &mut CPU) -> bool {
-            cpu.mem_write_u16(0xfffc, 0x8000);
-            cpu.load_and_run(vec![instruction, 0x03, 0x00], false);
-            if (cpu.program_counter == 0x8003) { false }
-            else { true }
+            match cpu.program_counter {
+                0x8006 => true,     // This is 0x8005 + 1, i.e. the program halts on 0x8005
+                0x8003 => false,    // Similarly in this case the program halts on 0x8002
+                _ => panic!("The value of the program counter is unexpected: {:x}", cpu.program_counter),
+            }
         }
-
+        
         #[test]
         fn test_bcc_0x90() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::C, false);
             assert_eq!(jump_check(0x90, &mut cpu), true);
@@ -649,7 +654,7 @@ mod cpu {
 
         #[test]
         fn test_bcs_0xb0() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::C, false);
             assert_eq!(jump_check(0xb0, &mut cpu), false);
@@ -660,7 +665,7 @@ mod cpu {
 
         #[test]
         fn test_beq_0xf0() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::Z, false);
             assert_eq!(jump_check(0xf0, &mut cpu), false);
@@ -671,7 +676,7 @@ mod cpu {
         
         #[test]
         fn test_bne_0xd0() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::Z, false);
             assert_eq!(jump_check(0xd0, &mut cpu), true);
@@ -682,7 +687,7 @@ mod cpu {
 
         #[test]
         fn test_bmi_0x30() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::N, false);
             assert_eq!(jump_check(0x30, &mut cpu), false);
@@ -693,7 +698,7 @@ mod cpu {
 
         #[test]
         fn test_bpl_0x10() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::N, false);
             assert_eq!(jump_check(0x10, &mut cpu), true);
@@ -704,7 +709,7 @@ mod cpu {
 
         #[test]
         fn test_bvc_0x50() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::V, false);
             assert_eq!(jump_check(0x50, &mut cpu), true);
@@ -715,14 +720,14 @@ mod cpu {
 
         #[test]
         fn test_bvc_0x70() {
-            let mut cpu = CPU::new();
+            let mut cpu = CPU::<TestBus>::new();
 
             cpu.set_flag(Flag::V, false);
             assert_eq!(jump_check(0x70, &mut cpu), false);
 
             cpu.set_flag(Flag::V, true);
             assert_eq!(jump_check(0x70, &mut cpu), true);
-        }*/
+        }
 
         fn dec(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
             let mem_value: u8 = next_u8(rng);
