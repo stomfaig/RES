@@ -33,6 +33,7 @@ mod cpu {
         pub register_a: u8,
         pub register_x: u8,
         pub register_y: u8,
+        pub stack_pointer: u8,
         pub status: u8,
         pub program_counter: u16,
         memory: T,
@@ -69,12 +70,27 @@ mod cpu {
         }
     }
 
+    // Macro for generating instructions lda, ldx and ldy.
+    // Loads the content of a specified memory address into a specified register.
+    macro_rules! st {
+        ($($name: ident, $register: ident),+) => {
+            $(
+                fn $name(&mut self, mode: AddressingMode) {
+                    let addr: u16 = self.get_target_address(mode);
+                    self.mem_write(addr, self.$register);
+                    todo!("flags!");
+                }
+            )+
+        }
+    }
+
     impl<T: Mem> CPU<T> {
         pub fn new() -> Self {
             CPU {
                 register_a: 0,
                 register_x: 0,
                 register_y: 0,
+                stack_pointer: 0xff,
                 status: 0,
                 program_counter: 0,
                 memory: T::new(),
@@ -124,6 +140,24 @@ mod cpu {
             }
 
             self.run();
+        }
+
+        fn stack_push(&mut self, val: u8) {
+            let addr: u16 = 0x0100 + self.stack_pointer as u16;
+            self.mem_write(addr, val);
+            self.stack_pointer -= 1;
+        }
+
+        fn stack_pop(&mut self) -> u8 {
+            let addr: u16 = 0x0100 + self.stack_pointer as u16;
+            let val: u8 = self.mem_read(addr);
+            self.stack_pointer += 1;
+            val
+        }
+        
+        fn stack_peek(&mut self) -> u8 {
+            let addr: u16 = 0x0100 + self.stack_pointer as u16;
+            self.mem_read(addr)
         }
 
         fn fetch(&mut self) -> u8 {
@@ -280,7 +314,11 @@ mod cpu {
         }
 
         fn eor(&mut self, mode: AddressingMode) {
-            todo!();
+            let addr: u16 = self.get_target_address(mode);
+            let data: u8 = self.mem_read(addr);
+            self.register_a |= data;
+            self.set_zero(self.register_a);
+            self.set_negative(self.register_a);
         }
 
         fn inc(&mut self, mode: AddressingMode) {
@@ -292,7 +330,56 @@ mod cpu {
             self.set_negative(val);
         }
 
+        fn jmp(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let data: u16 = self.mem_read_u16(addr);
+            self.program_counter = data;
+        }
+
         ld![lda, register_a, ldx, register_x, ldy, register_y];
+
+        fn lsr(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr);
+            let new_val: u8 = val >> 1;
+            self.mem_write(addr, new_val);
+
+            self.set_flag(Flag::C, val & 0b1000_000 != 0);
+            self.set_zero(new_val);
+            self.set_negative(new_val);
+        }
+        
+        fn ora(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let data: u8 = self.mem_read(addr);
+            self.register_a |= data;
+
+            self.set_zero(self.register_a);
+            self.set_negative(self.register_a);
+        }
+
+        /// rol - rotate left
+        fn rol(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr);
+            let new_val = val << 1 + self.get_flag(Flag::C) as u8; // maybe need something more intricate here??
+            self.mem_write(addr, new_val);
+            self.set_flag(Flag::C, val & 0b1000_0000 != 0);
+            self.set_zero(new_val);
+            self.set_negative(new_val);
+        }
+
+        fn ror(&mut self, mode: AddressingMode) {
+            let addr: u16 = self.get_target_address(mode);
+            let val: u8 = self.mem_read(addr);
+            let new_val = val >> 1 + (0b1000_0000 * (self.get_flag(Flag::C) as u8)); // maybe need something more intricate here??
+            self.mem_write(addr, new_val);
+            self.set_flag(Flag::C, val & 0b0000_0001 != 0);
+            self.set_zero(new_val);
+            self.set_negative(new_val);
+        }
+
+        st![sta, register_a, stx, register_x, sty, register_y];
 
         pub fn run(&mut self) {
             // Upon receiving a code, we want to find out the operation and the addressing mode.
@@ -319,12 +406,16 @@ mod cpu {
                     0x21 => self.and(AddressingMode::IndexedIndirectX),
                     0x31 => self.and(AddressingMode::IndirectIndexedY),
                     // asl
-                    0x0a => todo!(),
+                    0x0a => {
+                        self.set_flag(Flag::C, self.register_a & 0b1000_0000 != 0);
+                        let new_val = self.register_a << 1;
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
                     0x06 => self.asl(AddressingMode::ZeroPage),
                     0x16 => self.asl(AddressingMode::ZeroPageX),
                     0x0e => self.asl(AddressingMode::Absolute),
                     0x1e => self.asl(AddressingMode::AbsoluteX),
-
                     // bcc - Branch if carry clear
                     0x90 => { let carry = self.get_flag(Flag::C); self.jump_rel(!carry); },
                     // bcs - Branch if carry set
@@ -340,6 +431,17 @@ mod cpu {
                     0xd0 => { let zero = self.get_flag(Flag::Z); self.jump_rel(!zero); },
                     // bpl - Branch if positive
                     0x10 => { let neg = self.get_flag(Flag::N); self.jump_rel(!neg); },
+                    // brk - force interrupt
+                    0x00 => {
+                        let lsb: u8 = (self.program_counter & 0xff) as u8;
+                        let msb: u8 = (self.program_counter >> 8) as u8;
+                        self.stack_push(msb);
+                        self.stack_push(lsb);
+                        self.stack_push(self.status);
+                        
+                        self.program_counter = self.mem_read_u16(0xffff);
+                        self.set_flag(Flag::B, true);
+                    },
                     // bvc - Branch if overflow clear
                     0x50 => { let overflow = self.get_flag(Flag::V); self.jump_rel(!overflow); },
                     // bvs - Branch if overflow set
@@ -413,10 +515,17 @@ mod cpu {
                         self.set_negative(self.register_y);
                     },
                     // jmp - jump
-                    // 4c Absolute
-                    // 6c indirect
+                    0x4c => self.jmp(AddressingMode::Absolute),
+                    0x6c => self.jmp(AddressingMode::Indirect),
                     // jsr - jump to subroutine
-
+                    0x20 => {
+                        let target_addr: u16 = self.get_target_address(AddressingMode::Absolute);
+                        let lsb: u8 = ((self.program_counter-1) & 0xff) as u8;
+                        let msb: u8 = ((self.program_counter-1) >> 8) as u8;
+                        self.stack_push(msb);
+                        self.stack_push(lsb);
+                        self.program_counter = target_addr;
+                    }
                     // lda - load accumulator
                     0xa9 => self.lda(AddressingMode::Immediate),
                     0xa5 => self.lda(AddressingMode::ZeroPage),
@@ -439,25 +548,131 @@ mod cpu {
                     0xac => self.ldy(AddressingMode::Absolute),
                     0xbc => self.ldy(AddressingMode::AbsoluteX),
                     // lsr - logical shift right
-
+                    0x4a => { 
+                        self.set_flag(Flag::C, self.register_a & 0b1000_000 != 0);
+                        let new_val: u8 = self.register_a >> 1;
+                        self.register_a = new_val;
+                        self.set_zero(new_val);
+                        self.set_negative(new_val);
+                    },
+                    0x46 => self.lsr(AddressingMode::ZeroPage),
+                    0x56 => self.lsr(AddressingMode::ZeroPageX),
+                    0x4e => self.lsr(AddressingMode::Absolute),
+                    0x54 => self.lsr(AddressingMode::AbsoluteX),
                     // nop - no operation
                     0xea => todo!(),
-                    
+                    // ora - logical or performed on accumulator
+                    0x09 => self.ora(AddressingMode::Immediate),
+                    0x05 => self.ora(AddressingMode::ZeroPage),
+                    0x15 => self.ora(AddressingMode::ZeroPageX),
+                    0x0d => self.ora(AddressingMode::Absolute),
+                    0x1d => self.ora(AddressingMode::AbsoluteX),
+                    0x19 => self.ora(AddressingMode::AbsoluteY),
+                    0x01 => self.ora(AddressingMode::IndexedIndirectX),
+                    0x11 => self.ora(AddressingMode::IndirectIndexedY),
+                    // pha - push a onto stack
+                    0x48 => self.stack_push(self.register_a), 
+                    // php - push status onto stack
+                    0x08 => self.stack_push(self.status),
+                    // pla - pull accumulator
+                    0x68 => self.register_a = self.stack_pop(),
+                    // plp - pull processor status
+                    0x28 => self.status = self.stack_pop(),
+                    // rol - rotate left
+                    0x2a => {
+                        let val: u8 = self.register_a;
+                        self.register_a = val << 1 + self.get_flag(Flag::C) as u8; // maybe need something more intricate here??
+                        self.set_flag(Flag::C, val & 0b1000_0000 != 0);
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
+                    0x26 => self.rol(AddressingMode::ZeroPage),
+                    0x36 => self.rol(AddressingMode::ZeroPageX),
+                    0x2e => self.rol(AddressingMode::Absolute),
+                    0x3e => self.rol(AddressingMode::AbsoluteX),
+                    // ror - rotate right
+                    0x6a => {
+                        let val: u8 = self.register_a;
+                        self.register_a = val >> 1 + (0b1000_0000 * (self.get_flag(Flag::C) as u8)); // maybe need something more intricate here??
+                        self.set_flag(Flag::C, val & 0b0000_0001 != 0);
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
+                    0x66 => self.ror(AddressingMode::ZeroPage),
+                    0x76 => self.ror(AddressingMode::ZeroPageX),
+                    0x6e => self.ror(AddressingMode::Absolute),
+                    0x7e => self.ror(AddressingMode::AbsoluteX),
+                    // rti - return from interrupt
+                    0x40 => {
+                        self.status = self.stack_pop();
+                        let lsb: u8 = self.stack_pop();
+                        let msb: u8 = self.stack_pop();
+                        self.program_counter = lsb as u16 + (msb as u16) << 8;
+                    }
+                    // rts - return from subroutine
+                    0x60 => {
+                        let lsb: u8 = self.stack_pop();
+                        let msb: u8 = self.stack_pop();
+                        let ret_addr = (msb as u16) << 8 + lsb as u16;
+                        self.program_counter = ret_addr;
+                    }
+                    // sbc - subtract with carry
 
-                    // TAX
+                    // sec - set carry flag
+                    0x38 => { self.set_flag(Flag::C, true); },
+                    // sed - set decimal flag
+                    0xf8 => { self.set_flag(Flag::D, true); },
+                    // sei - set interrupt disable 
+                    0x78 => { self.set_flag(Flag::I, true); },
+                    // sta - store accumulator
+                    0x85 => self.sta(AddressingMode::ZeroPage),
+                    0x95 => self.sta(AddressingMode::ZeroPageX),
+                    0x8d => self.sta(AddressingMode::Absolute),
+                    0x9d => self.sta(AddressingMode::AbsoluteX),
+                    0x99 => self.sta(AddressingMode::AbsoluteY),
+                    0x81 => self.sta(AddressingMode::IndexedIndirectX),
+                    0x91 => self.sta(AddressingMode::IndirectIndexedY),
+                    // stx - store register x
+                    0x86 => self.stx(AddressingMode::ZeroPage),
+                    0x96 => self.stx(AddressingMode::ZeroPageY),
+                    0x8e => self.stx(AddressingMode::Absolute),
+                    // sty - store register y
+                    0x84 => self.sty(AddressingMode::ZeroPage),
+                    0x94 => self.sty(AddressingMode::ZeroPageX),
+                    0x8c => self.sty(AddressingMode::Absolute),
+                    // tax - transfer accumulator to x
                     0xaa => {
                         self.register_x = self.register_a;
-                        self.set_flag(Flag::Z, self.register_x == 0);
-                        self.set_flag(Flag::N, self.register_x & 0b1000_0000 != 0);
+                        self.set_zero(self.register_x);
+                        self.set_negative(self.register_x);
                     },
-                    // INX
-                    0xe8 => {
-                        self.register_x += 1;
-                        self.set_flag(Flag::Z, self.register_x == 0);
-                        self.set_flag(Flag::N, self.register_x & 0b1000_0000 != 0);
+                    // tay - transfer accumulator to y
+                    0xa8 => {
+                        self.register_y = self.register_a;
+                        self.set_zero(self.register_y);
+                        self.set_negative(self.register_y);
                     },
-                    0x00 => return,
-                    _ => todo!(""),
+                    // tsx - transfer stack register to x
+                    0xba => {
+                        self.register_x = self.stack_pointer;
+                        self.set_zero(self.register_x);
+                        self.set_negative(self.register_x);
+                    },
+                    // txa - transfer x to accumulator
+                    0x8a => {
+                        self.register_a = self.register_x;
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
+                    // txs - transfer x to stack pointer
+                    0x9a => self.stack_pointer = self.register_x,
+                    // tya - transfer y to accumulator
+                    0x98 => {
+                        self.register_a = self.register_y;
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
+                    _ => panic!("Can't recognize instruction instruction."),
                 }
             }
         }
