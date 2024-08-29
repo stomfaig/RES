@@ -996,6 +996,21 @@ mod cpu {
         run_test![ldx, Immediate,ZeroPage,ZeroPageY,Absolute,AbsoluteY];
         run_test![ldy, Immediate, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
 
+        fn lsr(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
+            let val = next_u8(rng);
+            let addr: u16 = addressing_mode_tester(cpu, val, &mode);
+            let new_val = val >> 1;
+            cpu.memory.set_write_target(addr, new_val);
+
+            cpu.lsr(mode);
+
+            assert_eq!(cpu.get_flag(Flag::C), val & 0b0000_0001 != 0);
+            assert_eq!(cpu.get_flag(Flag::Z), new_val == 0);
+            assert_eq!(cpu.get_flag(Flag::N), new_val & 0b1000_0000 != 0);
+        }
+
+        run_test![lsr, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
+
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
         fn addressing_mode_tester(cpu: &mut CPU<TestBus>, secret_value: u8, mode: &AddressingMode) -> u16 {
             let lsb: u8 = 10;
