@@ -141,7 +141,7 @@ impl Mem for TestBus {
             let result: Option<&u8> = self.write_targets.get(&self.address_bus);
             match result {
                 Some(val) => {
-                    if (*val != self.data_bus) { panic!("Method trying to write invalid data."); }
+                    if (*val != self.data_bus) { panic!("Method trying to write invalid data(expected: {:b}, got: {:b})", *val, self.data_bus); }
                 },
                 None => panic!("Method trying to write to forbidden memory(addr: {:x}, val: {:b})", self.address_bus, self.data_bus),
             }
