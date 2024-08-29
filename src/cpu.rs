@@ -1011,6 +1011,31 @@ mod cpu {
 
         run_test![lsr, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
 
+        fn ora(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
+            let val: u8 = next_u8(rng);
+            addressing_mode_tester(cpu, val, &mode);
+            let reg = next_u8(rng);
+            cpu.register_a = reg;
+
+            cpu.ora(mode);
+
+            assert_eq!(cpu.register_a, val | reg);
+            assert_eq!(cpu.get_flag(Flag::Z), cpu.register_a == 0);
+            assert_eq!(cpu.get_flag(Flag::N), cpu.register_a & 0b1000_0000 != 0);
+        }
+
+        run_test![ora, Immediate, ZeroPage, ZeroPageX, Absolute, AbsoluteX, AbsoluteY, IndexedIndirectX, IndirectIndexedY];
+
+        // push instructions
+
+        // rti
+
+        // rts
+
+        // rol
+
+        // ror
+
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
         fn addressing_mode_tester(cpu: &mut CPU<TestBus>, secret_value: u8, mode: &AddressingMode) -> u16 {
             let lsb: u8 = 10;
