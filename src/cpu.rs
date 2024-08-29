@@ -978,7 +978,23 @@ mod cpu {
         }
 
         run_test![inc, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
-        
+        macro_rules! ld {
+            ($($name: ident, $register: ident),+) => {
+                $(fn $name(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
+                    let val = next_u8(rng);
+                    addressing_mode_tester(cpu, val, &mode);
+                    cpu.$name(mode);
+
+                    assert_eq!(cpu.$register, val);
+                })+
+
+            }
+        }
+
+        ld![lda, register_a, ldx, register_x, ldy, register_y];
+        run_test![lda, Immediate, ZeroPage, ZeroPageX, Absolute, AbsoluteX, AbsoluteY, IndexedIndirectY, IndirectIndexedY];
+        run_test![ldx, Immediate,ZeroPage,ZeroPageY,Absolute,AbsoluteY];
+        run_test![ldy, Immediate, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
 
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
         fn addressing_mode_tester(cpu: &mut CPU<TestBus>, secret_value: u8, mode: &AddressingMode) -> u16 {
