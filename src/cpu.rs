@@ -344,7 +344,7 @@ mod cpu {
             let new_val: u8 = val >> 1;
             self.mem_write(addr, new_val);
 
-            self.set_flag(Flag::C, val & 0b1000_000 != 0);
+            self.set_flag(Flag::C, val & 0b0000_0001 != 0);
             self.set_zero(new_val);
             self.set_negative(new_val);
         }
@@ -978,6 +978,7 @@ mod cpu {
         }
 
         run_test![inc, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
+        
         macro_rules! ld {
             ($($name: ident, $register: ident),+) => {
                 $(fn $name(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
@@ -1028,12 +1029,27 @@ mod cpu {
 
         // push instructions
 
-        // rti
+        // rti . return from interrupt
 
-        // rts
+        // rts - return from subroutine
 
-        // rol
+        fn rol(cpu: &mut CPU<TestBus>, mode: AddressingMode, rng: &mut ThreadRng) {
+            let carry = next_bit(rng);
+            cpu.set_flag(Flag::C, carry != 0);
+            let val: u8 = next_u8(rng);
+            let addr: u16 = addressing_mode_tester(cpu, val, &mode);
 
+            let target_val = val << 1 + carry;
+            cpu.memory.set_write_target(addr, target_val);
+
+            cpu.rol(mode);
+            
+            assert_eq!(cpu.get_flag(Flag::C), val & 0b1000_0000 != 0);
+            assert_eq!(cpu.get_flag(Flag::Z), target_val == 0);
+            assert_eq!(cpu.get_flag(Flag::N), target_val & 0b1000_0000 != 0);
+        }
+
+        run_test![rol, ZeroPage, ZeroPageX, Absolute, AbsoluteX];
         // ror
 
         // Given a cpu and an addressing mode, this method plants a random number in a pre-defined location according to the indexing procedure, and generates code to to access the hidden information.
