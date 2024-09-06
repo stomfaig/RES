@@ -62,6 +62,10 @@ Completely memory backed memory unit for testing. The idea behind this module is
                                                     not 'val'.
 
 
+### ROM
+
+The Rom is consists of two chunks of memory. One of them is the PRG_ROM, and the other is the CHR_ROM which are both immutable chunks of memory. In the current implementation 
+
 [1]:https://bugzmanov.github.io/nes_ebook/chapter_1.html
 [2]:https://www.nesdev.org/obelisk-6502-guide/index.html
 

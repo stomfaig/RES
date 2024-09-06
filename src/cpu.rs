@@ -85,7 +85,7 @@ mod cpu {
     }
 
     impl<T: Mem> CPU<T> {
-        pub fn new() -> Self {
+        pub fn new(memory: T) -> Self {
             CPU {
                 register_a: 0,
                 register_x: 0,
@@ -93,7 +93,7 @@ mod cpu {
                 stack_pointer: 0xff,
                 status: 0,
                 program_counter: 0,
-                memory: T::new(),
+                memory: memory,
             }
         }
 

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::rom::Rom;
+
 pub enum ControlSignal {
     MemEnable = 0b0000_0001,
     AccessMode = 0b0000_0010,
@@ -146,6 +148,46 @@ impl Mem for TestBus {
                 None => panic!("Method trying to write to forbidden memory(addr: {:x}, val: {:b})", self.address_bus, self.data_bus),
             }
         }
+    }
+
+    fn get_control_signal(&self, control: ControlSignal) -> bool {
+        (self.control_bus & (control as u8)) != 0
+    }
+}
+
+pub struct RomBus<T: Rom> {
+    address_bus: u16,
+    data_bus: u8,
+    control_bus: u8,
+    data: [u8; 0xffff],
+    rom: Option<T>,
+}
+
+impl<T: Rom> Mem for RomBus<T> {
+    fn new() -> Self {
+        Self {
+            address_bus : 0,
+            data_bus : 0,
+            control_bus : 0,
+            data : [0; 0xffff],
+            rom : None,
+        }
+    }
+
+    fn set_address_bus(&mut self, addr: u16) {
+        self.address_bus = addr;
+    }
+
+    fn set_data_bus(&mut self, val: u8) {
+        self.data_bus = val;
+    }
+
+    fn get_data_bus(&self) -> u8 {
+        self.data_bus
+    }   
+
+    fn set_control_signal(&mut self, control: ControlSignal, val: bool) {
+        
     }
 
     fn get_control_signal(&self, control: ControlSignal) -> bool {
