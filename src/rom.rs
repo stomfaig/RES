@@ -112,7 +112,7 @@ impl Rom for NROM_256 {
     }
 }
 
-
+pub struct EmptyRom;
 
 impl EmptyRom {
     pub fn new() -> Self {

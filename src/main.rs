@@ -5,7 +5,9 @@ mod rom;
 use config::Config;
 use std::collections::HashMap;
 
-use crate::rom::Rom;
+use crate::cpu::cpu::{CPU};
+use crate::bus::{Mem, RomBus, ArrayBus};
+use crate::rom::{Rom, NROM_128, rom_reader};
 
 fn main() {
 
@@ -14,17 +16,18 @@ fn main() {
         .build()
         .unwrap();
 
-    let rom: Option<Box<dyn Rom>> =  match settings.get_int("rom") {
-        Ok(val) => {
-            if val == 0 { println!("Startup without rom..."); None }
-            else { None }
+    match rom_reader() {
+        Ok(rom) => {
+            println!("INFO\tSuccessful initialization");
+            let mut bus = RomBus::new();
+            bus.set_rom(rom);
+            let mut cpu = CPU::<RomBus>::new(bus);
+            cpu.start();
         },
         Err(e) => {
-            println!("Failed to read rom info from config, startup without rom. (err: {:?})", e);
-            None
-        },
-    };
-
-    // try loading a rom. if that fails, continue startup without a rom
-
+            println!("ERR:\tRom loading failed ({}), starting without rom...", e);
+            let mut bus = ArrayBus::new();
+            let mut cpu = CPU::<ArrayBus>::new(bus);
+        }
+    }
 }

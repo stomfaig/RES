@@ -1,4 +1,4 @@
 ---
 
 rom : 0
-rom_type : 0
+cpu_test : 0
