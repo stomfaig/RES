@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::rom::Rom;
+use crate::rom::{Rom, EmptyRom};
 
 pub enum ControlSignal {
     MemEnable = 0b0000_0001,
@@ -93,9 +93,9 @@ impl TestBus {
         self.read_targets.insert(addr + 1, high);
     }
 
-    pub fn set_vector_read_target(&mut self, addr: u16, vals: Vec<u8>) {
+    pub fn set_vector_read_target(&mut self, addr: u16, values: Vec<u8>) {
         let mut offset: u16 = 0;
-        for val in vals {
+        for val in values {
             self.read_targets.insert(addr + offset, val);
             offset += 1;
         }
@@ -155,13 +155,17 @@ impl Mem for TestBus {
     }
 }
 
-pub struct RomBus<T: Rom> {
+pub struct RomBus {
     address_bus: u16,
     data_bus: u8,
     control_bus: u8,
     data: [u8; 0x0800],
     rom: Box<dyn Rom>,
 }
+
+/** Memory layout for rombus type memory
+
+*/
 
 impl RomBus {
     
