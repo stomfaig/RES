@@ -163,10 +163,6 @@ pub struct RomBus {
     rom: Box<dyn Rom>,
 }
 
-/** Memory layout for rombus type memory
-
-*/
-
 impl RomBus {
     
     fn update(&mut self) {
@@ -186,7 +182,7 @@ impl RomBus {
                 0x4018..=0x401f => {}, // apu and io func normally disabled.
                 0x6000..=0x7fff => {
 
-                }, // Catridge RAM when present
+                }, // Cartridge RAM when present
                 0x8000..=0xffff => {
                     self.data_bus = (*self.rom).prg_read(self.address_bus);
                 },
@@ -206,7 +202,7 @@ impl RomBus {
                 0x4018..=0x401f => {}, // apu and io func normally disabled.
                 0x6000..=0x7fff => {
 
-                }, // Catridge RAM when present
+                }, // Cartridge RAM when present
                 0x8000..=0xffff => {
                     panic!("Program trying to write to ROM.")
                 },
