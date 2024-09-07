@@ -113,3 +113,21 @@ impl Rom for NROM_256 {
 }
 
 
+
+impl EmptyRom {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Rom for EmptyRom {
+    fn load(&mut self, raw: &Vec<u8>, trainer: bool) -> Result<(), String> {
+        panic!("Empty ROM.")
+    }
+    fn prg_read(&self, address: u16) -> u8 {
+        panic!("Empty ROM.");
+    }
+    fn chr_read(&self, address: u16) -> u8 {
+        panic!("Empty ROM.");
+    }
+}
