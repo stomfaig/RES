@@ -1,7 +1,8 @@
 #![allow(arithmetic_overflow)]
-mod cpu {
+pub mod cpu {
 
-    use crate::bus::{ControlSignal, Mem, ArrayBus};
+    use crate::bus::{ControlSignal, Mem};
+    use std::{thread, time};
 
     enum AddressingMode {
         Immediate,
@@ -20,13 +21,14 @@ mod cpu {
 
     #[repr(u8)]
     enum Flag {
-        C = 0b0100_0000,
-        Z = 0b0010_0000,
-        I = 0b0001_0000,
-        D = 0b0000_1000,
-        B = 0b0000_0100,
-        V = 0b0000_0010,
-        N = 0b0000_0001,
+        N = 0b1000_0000, // negative
+        V = 0b0100_0000, // overflow
+        //
+        B = 0b0001_0000, // B flag
+        D = 0b0000_1000, // decimal
+        I = 0b0000_0100, // interrupt disable
+        Z = 0b0000_0010, // zero
+        C = 0b0000_0001, // carry
     }
 
     pub struct CPU <T: Mem>{
@@ -36,6 +38,7 @@ mod cpu {
         pub stack_pointer: u8,
         pub status: u8,
         pub program_counter: u16,
+        pub debug: bool,
         memory: T,
     }
 
@@ -78,21 +81,21 @@ mod cpu {
                 fn $name(&mut self, mode: AddressingMode) {
                     let addr: u16 = self.get_target_address(mode);
                     self.mem_write(addr, self.$register);
-                    todo!("flags!");
                 }
             )+
         }
     }
 
     impl<T: Mem> CPU<T> {
-        pub fn new(memory: T) -> Self {
+        pub fn new(memory: T, debug: bool) -> Self {
             CPU {
                 register_a: 0,
                 register_x: 0,
                 register_y: 0,
                 stack_pointer: 0xff,
-                status: 0,
+                status: 0b0010_0000,
                 program_counter: 0,
+                debug: debug,
                 memory: memory,
             }
         }
@@ -128,20 +131,6 @@ mod cpu {
             self.mem_write(addr + 1, hi);
         }
 
-        pub fn load_and_run(&mut self, program: Vec<u8>, reset: bool) {
-            //self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
-            self.program_counter = self.mem_read_u16(0xfffc);
-
-            if (reset) {
-                self.register_a = 0;
-                self.register_x = 0;
-                self.register_y = 0;
-                self.status = 0x00 as u8;
-            }
-
-            self.run();
-        }
-
         fn stack_push(&mut self, val: u8) {
             let addr: u16 = 0x0100 + self.stack_pointer as u16;
             self.mem_write(addr, val);
@@ -149,20 +138,16 @@ mod cpu {
         }
 
         fn stack_pop(&mut self) -> u8 {
+            self.stack_pointer += 1;
             let addr: u16 = 0x0100 + self.stack_pointer as u16;
             let val: u8 = self.mem_read(addr);
-            self.stack_pointer += 1;
             val
         }
         
-        fn stack_peek(&mut self) -> u8 {
-            let addr: u16 = 0x0100 + self.stack_pointer as u16;
-            self.mem_read(addr)
-        }
-
         fn fetch(&mut self) -> u8 {
             let data = self.mem_read(self.program_counter);
             self.program_counter += 1;
+            if self.debug { print!(" {:x}", data) }
             data
         }
 
@@ -181,7 +166,7 @@ mod cpu {
 
         fn get_target_address(&mut self, mode: AddressingMode) -> u16 {
             match mode {
-                AddressingMode::Immediate => self.program_counter,
+                AddressingMode::Immediate => {self.program_counter += 1; self.program_counter-1},
                 AddressingMode::ZeroPage => self.fetch() as u16,
                 AddressingMode::ZeroPageX => self.fetch() as u16 + self.register_x as u16,
                 AddressingMode::ZeroPageY => self.fetch() as u16 + self.register_y as u16,
@@ -295,12 +280,12 @@ mod cpu {
 
         fn jump_rel(&mut self, condition: bool) {
             let rel: u8 = self.fetch();
-            if (!condition) { return; }
-            self.program_counter -= 2;
+            if !condition { return; }
+            self.program_counter;
             if rel & 0b1000_0000 == 0 {
                 self.program_counter += (rel & 0b0111_1111) as u16;
             } else {
-                self.program_counter += (rel as u16 | 0b1111_1111_0000_0000);
+                self.program_counter += rel as u16 | 0b1111_1111_0000_0000;
             }
         }
 
@@ -316,7 +301,7 @@ mod cpu {
         fn eor(&mut self, mode: AddressingMode) {
             let addr: u16 = self.get_target_address(mode);
             let data: u8 = self.mem_read(addr);
-            self.register_a |= data;
+            self.register_a |= data; 
             self.set_zero(self.register_a);
             self.set_negative(self.register_a);
         }
@@ -332,8 +317,8 @@ mod cpu {
 
         fn jmp(&mut self, mode: AddressingMode) {
             let addr: u16 = self.get_target_address(mode);
-            let data: u16 = self.mem_read_u16(addr);
-            self.program_counter = data;
+            //let data: u16 = self.mem_read_u16(addr);
+            self.program_counter = addr;
         }
 
         ld![lda, register_a, ldx, register_x, ldy, register_y];
@@ -379,13 +364,23 @@ mod cpu {
             self.set_negative(new_val);
         }
 
+        fn sbc(&mut self, _mode: AddressingMode) {
+            todo!();
+        }
+
         st![sta, register_a, stx, register_x, sty, register_y];
 
-        pub fn run(&mut self) {
-            // Upon receiving a code, we want to find out the operation and the addressing mode.
+        pub fn start(&mut self) {
+            //self.program_counter = 0xc000; //
+            self.program_counter = self.mem_read_u16(0xFFFC);
+            self.run();
+        }
 
+        pub fn run(&mut self) {
             loop {
-                let opcode = self.fetch();
+                if self.debug { print!("prg ctr: {:x}, cd:", self.program_counter) }
+                let opcode: u8 = self.fetch();
+
                 match opcode {
                     // adc
                     0x69 => self.adc(AddressingMode::Immediate),
@@ -408,7 +403,7 @@ mod cpu {
                     // asl
                     0x0a => {
                         self.set_flag(Flag::C, self.register_a & 0b1000_0000 != 0);
-                        let new_val = self.register_a << 1;
+                        self.register_a = self.register_a << 1;
                         self.set_zero(self.register_a);
                         self.set_negative(self.register_a);
                     },
@@ -520,8 +515,8 @@ mod cpu {
                     // jsr - jump to subroutine
                     0x20 => {
                         let target_addr: u16 = self.get_target_address(AddressingMode::Absolute);
-                        let lsb: u8 = ((self.program_counter-1) & 0xff) as u8;
-                        let msb: u8 = ((self.program_counter-1) >> 8) as u8;
+                        let lsb: u8 = ((self.program_counter) & 0xff) as u8;
+                        let msb: u8 = ((self.program_counter) >> 8) as u8;                    
                         self.stack_push(msb);
                         self.stack_push(lsb);
                         self.program_counter = target_addr;
@@ -560,7 +555,7 @@ mod cpu {
                     0x4e => self.lsr(AddressingMode::Absolute),
                     0x54 => self.lsr(AddressingMode::AbsoluteX),
                     // nop - no operation
-                    0xea => todo!(),
+                    0xea => (),
                     // ora - logical or performed on accumulator
                     0x09 => self.ora(AddressingMode::Immediate),
                     0x05 => self.ora(AddressingMode::ZeroPage),
@@ -573,9 +568,13 @@ mod cpu {
                     // pha - push a onto stack
                     0x48 => self.stack_push(self.register_a), 
                     // php - push status onto stack
-                    0x08 => self.stack_push(self.status),
+                    0x08 => self.stack_push(self.status | 0b0001_0000),
                     // pla - pull accumulator
-                    0x68 => self.register_a = self.stack_pop(),
+                    0x68 =>  {
+                        self.register_a = self.stack_pop();
+                        self.set_zero(self.register_a);
+                        self.set_negative(self.register_a);
+                    },
                     // plp - pull processor status
                     0x28 => self.status = self.stack_pop(),
                     // rol - rotate left
@@ -613,11 +612,18 @@ mod cpu {
                     0x60 => {
                         let lsb: u8 = self.stack_pop();
                         let msb: u8 = self.stack_pop();
-                        let ret_addr = (msb as u16) << 8 + lsb as u16;
+                        let ret_addr = ((msb as u16) << 8) + (lsb as u16);
                         self.program_counter = ret_addr;
                     }
                     // sbc - subtract with carry
-
+                    0xe9 => self.sbc(AddressingMode::Immediate),
+                    0xe5 => self.sbc(AddressingMode::ZeroPage),
+                    0xf5 => self.sbc(AddressingMode::ZeroPageX),
+                    0xed => self.sbc(AddressingMode::Absolute),
+                    0xfd => self.sbc(AddressingMode::AbsoluteX),
+                    0xf9 => self.sbc(AddressingMode::AbsoluteY),
+                    0xe1 => self.sbc(AddressingMode::IndexedIndirectX),
+                    0xf1 => self.sbc(AddressingMode::IndirectIndexedY),
                     // sec - set carry flag
                     0x38 => { self.set_flag(Flag::C, true); },
                     // sed - set decimal flag
@@ -672,8 +678,13 @@ mod cpu {
                         self.set_zero(self.register_a);
                         self.set_negative(self.register_a);
                     },
-                    _ => panic!("Can't recognize instruction instruction."),
+                    _ => panic!("Can't recognize instruction instruction {:?}", opcode),
                 }
+
+                let ten_millis = time::Duration::from_millis(100);
+                thread::sleep(ten_millis);
+
+                if self.debug {println!("\t\t\tA: {:?} X: {:?}, Y: {:?} \t\t flags: {:#08b}", self.register_a, self.register_x, self.register_y, self.status) }
             }
         }
     }

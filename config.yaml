@@ -1,4 +1,5 @@
 ---
 
 rom : 0
+debug : 1
 cpu_test : 0

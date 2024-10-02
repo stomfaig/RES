@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::rom::{Rom, EmptyRom};
 
 pub enum ControlSignal {
@@ -26,9 +24,9 @@ pub struct ArrayBus {
 impl ArrayBus {
     // Currently I assume that 0 is 'save into mem' and 1 is 'read from mem', but this might change...
     fn update(&mut self) {
-        if (!self.get_control_signal(ControlSignal::MemEnable)) { return; }
+        if !self.get_control_signal(ControlSignal::MemEnable) { return; }
     
-        if (self.get_control_signal(ControlSignal::AccessMode)) {
+        if self.get_control_signal(ControlSignal::AccessMode) {
             self.data_bus = self.data[self.address_bus as usize];
         } else {
             self.data[self.address_bus as usize] = self.data_bus;
@@ -60,7 +58,7 @@ impl Mem for ArrayBus {
 
     fn set_control_signal(&mut self, control: ControlSignal, val: bool) {
         let mask = control as u8;
-        if (val)  { self.control_bus |= mask; }
+        if val  { self.control_bus |= mask; }
         else { self.control_bus &= !mask; }
         self.update();
     }
@@ -84,16 +82,16 @@ pub struct RomBus {
 impl RomBus {
     
     fn update(&mut self) {
-        if (!self.get_control_signal(ControlSignal::MemEnable)) { return; }
+        if !self.get_control_signal(ControlSignal::MemEnable) { return; }
 
-        if (self.get_control_signal(ControlSignal::AccessMode)) { // read from mem
+        if self.get_control_signal(ControlSignal::AccessMode) { // read from mem
             match self.address_bus {
                 0..=0x1fff => {
                     let addr: u16 = self.address_bus % 0x0800;
                     self.data_bus = self.data[addr as usize];
                 },
                 0x2000..=0x3fff => {
-                    let ppu_reg = self.address_bus % 0x0008;
+                    let _ppu_reg = self.address_bus % 0x0008;
                     
                 }, // ppu registers
                 0x4000..=0x4017 => {}, // apu and io registers
@@ -113,7 +111,7 @@ impl RomBus {
                     self.data[addr as usize] = self.data_bus;
                 },
                 0x2000..=0x3fff => {
-                    let ppu_reg = self.address_bus % 0x0008;
+                    let _ppu_reg = self.address_bus % 0x0008;
                     
                 }, // ppu registers
                 0x4000..=0x4017 => {}, // apu and io registers
@@ -158,7 +156,7 @@ impl Mem for RomBus {
     }   
 
     fn set_control_signal(&mut self, control: ControlSignal, val: bool) {
-        if val { self.control_bus |= (control as u8); }
+        if val { self.control_bus |= control as u8; }
         else { self.control_bus &= !(control as u8); }
 
         self.update();

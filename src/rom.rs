@@ -13,19 +13,23 @@ pub fn rom_reader() -> Result<Box<dyn Rom>, String> {
         Err(e) => return Err(e.to_string()),
     };
 
+    if (raw[0] != ('N' as u8)) || (raw[1] != ('E' as u8)) || (raw[2] != ('S' as u8)) { panic!("Can't recognize iNES header!"); }
+
     if raw.len() < 16 { return Err(String::from("Invalid INES header...")) }
 
     let prg_rom_chunks = raw[4];
-    let chr_rom_chunks = raw[5];
+    let _chr_rom_chunks = raw[5];
     let trainer: bool = raw[6] & 0b100 != 0;
     let rom_mapper = ((raw[6] & 0b1111_0000) >> 4) | (raw[7] & 0b1111_0000);
-    let ines_version = if (raw[7] & 0b1100 >> 1 == 0b10) { 2 } else { 1 };
+    let ines_version = if (raw[7] & 0b1100 >> 1) == 0b10 { 2 } else { 1 };
+
+    if ines_version != 1 { panic!("Only INES version 1 is supported."); }
 
     let mut rom: Box<dyn Rom> = match rom_mapper {
         0 => {
             match prg_rom_chunks {
-                1 => Box::new(NROM_128::new()),
-                2 => Box::new(NROM_256::new()),
+                1 => Box::new(Nrom128::new()),
+                2 => Box::new(Nrom256::new()),
                 _ => return Err(format!("NROM does not support {:?} prg chunks!", prg_rom_chunks)),
             }
         },
@@ -40,12 +44,12 @@ pub fn rom_reader() -> Result<Box<dyn Rom>, String> {
     }
 }
 
-pub struct NROM_128 {
+pub struct Nrom128 {
     prg_rom: [u8; 0x4000],
     chr_rom: [u8; 0x2000],
 }
 
-impl NROM_128 {
+impl Nrom128 {
     fn new() -> Self {
         println!("INFO\tInitializing NROM128...");
         Self {
@@ -55,7 +59,7 @@ impl NROM_128 {
     }
 }
 
-impl Rom for NROM_128 {
+impl Rom for Nrom128 {
     fn load(&mut self, raw: &Vec<u8>, trainer: bool) -> Result<(), String> {
         let offset: usize = if trainer {512 + 16} else {16};
         if raw.len() != offset + 0x6000 {
@@ -76,12 +80,12 @@ impl Rom for NROM_128 {
     }
 }
 
-pub struct NROM_256 {
+pub struct Nrom256 {
     prg_rom: [u8; 0x8000],
     chr_rom: [u8; 0x2000],
 }
 
-impl NROM_256 {
+impl Nrom256 {
     fn new() -> Self {
         println!("INFO\tInitializing NROM256...");
         Self {
@@ -91,7 +95,7 @@ impl NROM_256 {
     }
 }
 
-impl Rom for NROM_256 {
+impl Rom for Nrom256 {
 
     fn load(&mut self, raw: &Vec<u8>, trainer: bool) -> Result<(), String> {
         let offset: usize = if trainer {512 + 16} else {16};
@@ -121,13 +125,13 @@ impl EmptyRom {
 }
 
 impl Rom for EmptyRom {
-    fn load(&mut self, raw: &Vec<u8>, trainer: bool) -> Result<(), String> {
+    fn load(&mut self, _raw: &Vec<u8>, _trainer: bool) -> Result<(), String> {
         panic!("Empty ROM.")
     }
-    fn prg_read(&self, address: u16) -> u8 {
+    fn prg_read(&self, _address: u16) -> u8 {
         panic!("Empty ROM.");
     }
-    fn chr_read(&self, address: u16) -> u8 {
+    fn chr_read(&self, _address: u16) -> u8 {
         panic!("Empty ROM.");
     }
 }

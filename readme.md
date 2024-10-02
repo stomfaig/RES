@@ -64,8 +64,16 @@ Completely memory backed memory unit for testing. The idea behind this module is
 
 ### ROM
 
-The Rom is consists of two chunks of memory. One of them is the PRG_ROM, and the other is the CHR_ROM which are both immutable chunks of memory. In the current implementation 
+The Rom is consists of two chunks of memory. One of them is the PRG_ROM, and the other is the CHR_ROM which are both immutable. Some cartridges also had a RAM module onboard, which allows to save the state of the game. To start with, I am going to implement the following ROM types:
+
+    Nrom128
+    Nrom256
+
+Cartridges are loaded from files specified upon startup as an argument. The file should be encoded in the INES1 format. The above ROM types correspond to the mapper type 0 in the this format (see [3])
+
+
 
 [1]:https://bugzmanov.github.io/nes_ebook/chapter_1.html
 [2]:https://www.nesdev.org/obelisk-6502-guide/index.html
+[3]:https://www.nesdev.org/wiki/Mapper
 
